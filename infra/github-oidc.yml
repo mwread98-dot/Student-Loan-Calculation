@@ -29,9 +29,12 @@ Parameters:
     Type: String
     Default: 'ref:refs/heads/main'
     Description: >-
-      Which workflow runs may assume the role. Defaults to the main branch
-      only. Use 'ref:refs/heads/*' for any branch, or '*' for any run including
-      pull requests from forks — which is rarely what you want.
+      Which workflow runs may assume the role, as the tail of the token's
+      subject claim. Defaults to the main branch only. Use 'ref:refs/heads/*'
+      for any branch, or '*' for any run including pull requests from forks —
+      which is rarely what you want. A job that declares an environment gets a
+      different subject entirely, so for those set this to
+      'environment:<name>', e.g. environment:production, and not a ref.
 
   CreateOidcProvider:
     Type: String
@@ -95,7 +98,20 @@ Resources:
               StringLike:
                 # Pins the role to this repository, so no other repository's
                 # workflow can assume it even with a valid GitHub token.
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:${GitHubRefPattern}'
+                #
+                # Two subject formats are accepted because GitHub changed it on
+                # 15 July 2026: repositories created before that date use
+                # repo:owner/name, and newer ones embed immutable numeric IDs
+                # as repo:owner@id/name@id. Matching both means the template
+                # does not depend on when the repository happened to be made.
+                # The IDs are wildcarded, so the pin is on the names — the same
+                # strength every such policy had before the change.
+                'token.actions.githubusercontent.com:sub':
+                  - !Sub 'repo:${GitHubRepository}:${GitHubRefPattern}'
+                  - !Sub
+                    - 'repo:${Owner}@*/${Repo}@*:${GitHubRefPattern}'
+                    - Owner: !Select [0, !Split ['/', !Ref GitHubRepository]]
+                      Repo: !Select [1, !Split ['/', !Ref GitHubRepository]]
       Policies:
         - PolicyName: PublishSite
           PolicyDocument:

@@ -19,7 +19,13 @@ jobs:
   deploy:
     name: Build and publish
     runs-on: ubuntu-latest
-    environment: production
+    # Deliberately no `environment:` here. Declaring one changes the OIDC
+    # subject claim from repo:<repo>:ref:refs/heads/main to
+    # repo:<repo>:environment:<name>, which no longer matches a trust policy
+    # pinned to the branch. If you want an environment — for a required
+    # approval before each deploy — add it back AND set the stack's
+    # GitHubRefPattern to environment:<name>, or the deploy stops
+    # authenticating.
     steps:
       # Checked before anything else: AWS answers a malformed ARN with
       # "Request ARN is invalid" after a minute of retries, which says nothing

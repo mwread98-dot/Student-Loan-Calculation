@@ -237,6 +237,27 @@ When it finishes, the **Outputs** tab shows `DnsTarget` — something like
 
 ---
 
+## A note on subject claims
+
+AWS decides whether to trust a run by comparing the *subject claim* in
+GitHub's token against the role's trust policy. Two things change what GitHub
+puts in that claim, and both cause the same opaque
+`Not authorized to perform sts:AssumeRoleWithWebIdentity`:
+
+- **Repositories created from 15 July 2026 onwards** use an immutable subject
+  that embeds permanent numeric IDs —
+  `repo:owner@1234/repo@5678:ref:refs/heads/main` rather than
+  `repo:owner/repo:ref:refs/heads/main`. Older repositories keep the original
+  format unless they opt in, and a rename or transfer moves them across too.
+  The template accepts both, so this is handled either way.
+
+- **A job that declares an `environment:`** gets
+  `repo:...:environment:<name>` in place of the branch part entirely. The
+  deploy workflow therefore does not use one. If you want an environment — to
+  require an approval before each deploy — add it to the job *and* set the
+  stack's `GitHubRefPattern` to `environment:<name>`. Changing one without the
+  other breaks authentication.
+
 ## What this costs
 
 Pennies. The site is a few hundred kilobytes in S3, and CloudFront's perpetual
@@ -264,6 +285,6 @@ bucket → Empty**, type the confirmation, then **Delete**.
 | A stack is stuck in `ROLLBACK_COMPLETE` | Nothing was created; delete it before trying again. CloudFormation will not reuse the name until you do. |
 | Deploy run fails at *Get temporary AWS credentials* | `AWS_DEPLOY_ROLE_ARN` is missing, mistyped, or saved as a *Secret* rather than a *Variable*. |
 | `Could not assume role with OIDC: Request ARN is invalid` | `AWS_DEPLOY_ROLE_ARN` holds the OIDC provider ARN (`:oidc-provider/`) instead of the role ARN (`:role/`). Copy `DeployRoleArn` from the CI stack's Outputs tab. |
-| Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | Either the branch does not match `GitHubRefPattern` — you are deploying from something other than `main` — or `GitHubRepository` has a `.git` suffix or wrong capitalisation, which passes the stack's validation but not GitHub's token. Update the `student-loan-calculator-ci` stack with the corrected value. |
+| Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The role exists but its trust policy does not match the token. Usually: the branch is not the one in `GitHubRefPattern`; `GitHubRepository` has a `.git` suffix or wrong capitalisation; the job declares an `environment:` (see below); or the stack predates the immutable-subject support and needs updating with the current template. |
 | Site shows an old version | CloudFront cache. The workflow invalidates it, but propagation takes a minute; hard-refresh. |
 | **Actions** tab shows no *Run workflow* button | The workflow file is not on the default branch yet — finish step 1. |
