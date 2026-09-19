@@ -16,6 +16,9 @@ import {
   RPI_FORECAST,
   RPI_LONG_RUN,
   RPI_REVERSION_YEARS,
+  TAX_BANDS_2026_27,
+  TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
+  DEFAULT_TAX_THRESHOLD_GROWTH,
   THRESHOLD_FREEZE_UNTIL_YEAR,
 } from './domain/rates';
 import type { Assumptions, Loan, OverpaymentPlan } from './domain/types';
@@ -43,6 +46,10 @@ export default function App() {
     thresholdGrowth: DEFAULT_THRESHOLD_GROWTH,
     thresholdFreezeUntilYear: THRESHOLD_FREEZE_UNTIL_YEAR,
     opportunityRateOverride: null,
+    isaAvailable: true,
+    taxBands: TAX_BANDS_2026_27,
+    taxThresholdFreezeUntilYear: TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
+    taxThresholdGrowth: DEFAULT_TAX_THRESHOLD_GROWTH,
     startDate: startOfThisMonth(),
   });
   const [overpayment, setOverpayment] = useState<OverpaymentPlan>({

@@ -52,6 +52,28 @@ try {
     (await page.locator('#real-growth').inputValue()) === '2' &&
     (await page.locator('#real-growth-years').inputValue()) === '10');
 
+  console.log('\nThe ISA question');
+  const discountText = async () =>
+    (await page.locator('.rates-note').last().textContent())?.replace(/\s+/g, ' ') ?? '';
+  // A big enough sum that the savings allowance cannot absorb the interest.
+  await page.fill('#salary', '70000');
+  await page.fill('#lump-sum', '40000');
+  await page.waitForTimeout(300);
+  const inIsa = await discountText();
+  check('treats interest as tax free when an ISA is available', /tax free/i.test(inIsa), inIsa);
+
+  await page.uncheck('#isa-available');
+  await page.waitForTimeout(300);
+  const taxed = await discountText();
+  check('docks tax from the return when no ISA is available',
+    /lost to tax/i.test(taxed), taxed);
+  check('lowers the discount rate once tax is applied', inIsa !== taxed);
+
+  await page.check('#isa-available');
+  await page.fill('#salary', '85000');
+  await page.fill('#lump-sum', '8000');
+  await page.waitForTimeout(300);
+
   console.log('\nThe discount rate');
   await page.locator('details.advanced summary').click();
   const discountNote = async () =>

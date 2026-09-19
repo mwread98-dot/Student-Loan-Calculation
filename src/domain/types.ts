@@ -48,8 +48,38 @@ export interface Assumptions {
    * run, which is the closest thing to a risk-free return over that term.
    */
   opportunityRateOverride: number | null;
+  /**
+   * Whether the money kept back could sit in an ISA, where interest is free of
+   * tax. If not, the return is taxed according to the borrower's salary.
+   */
+  isaAvailable: boolean;
+  /** Income tax thresholds and rates as they stand today. */
+  taxBands: TaxBands;
+  /** Tax thresholds are held flat for tax years before this one. */
+  taxThresholdFreezeUntilYear: number;
+  /** Annual uprating of tax thresholds once the freeze ends. */
+  taxThresholdGrowth: number;
   /** Month the projection starts from. Defaults to today. */
   startDate: Date;
+}
+
+/** Income tax thresholds and rates, for a single tax year. */
+export interface TaxBands {
+  personalAllowance: number;
+  /** Income above which the personal allowance is withdrawn. */
+  personalAllowanceTaperFrom: number;
+  /** Taxable income covered by the basic rate, above the personal allowance. */
+  basicRateLimit: number;
+  higherRateThreshold: number;
+  additionalRateThreshold: number;
+  basicRate: number;
+  higherRate: number;
+  additionalRate: number;
+  /** Savings income taxed at 0%, eroded by employment income. */
+  startingRateForSavings: number;
+  psaBasic: number;
+  psaHigher: number;
+  psaAdditional: number;
 }
 
 /** A voluntary overpayment the borrower is considering. */
@@ -122,10 +152,21 @@ export interface Verdict {
 
 /** Where the discount rate came from, so the figure can be justified. */
 export interface DiscountRate {
+  /** The rate used, after tax. */
   rate: number;
+  /** The rate before tax, for showing what tax costs. */
+  grossRate: number;
   basis: 'gilt-30' | 'gilt-10' | 'override';
   /** Years the debt still has to run, which decided the choice of gilt. */
   horizonYears: number;
+  /** Whether the return was treated as tax free. */
+  taxFree: boolean;
+  /**
+   * Share of the gross return lost to tax, averaged over the term. Zero inside
+   * an ISA, and non-zero outside one even for a basic rate taxpayer once the
+   * savings allowance is used up.
+   */
+  effectiveTaxRate: number;
   label: string;
 }
 

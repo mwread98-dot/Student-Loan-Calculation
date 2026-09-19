@@ -16,6 +16,8 @@ import {
   RPI_FORECAST,
   RPI_LONG_RUN,
   RPI_REVERSION_YEARS,
+  TAX_BANDS_2026_27,
+  TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
 } from '../domain/rates';
 import type { Assumptions, Loan, OverpaymentPlan } from '../domain/types';
 
@@ -31,6 +33,10 @@ const baseAssumptions: Assumptions = {
   thresholdGrowth: 0.03,
   thresholdFreezeUntilYear: 2030,
   opportunityRateOverride: 0.04,
+  isaAvailable: true,
+  taxBands: TAX_BANDS_2026_27,
+  taxThresholdFreezeUntilYear: TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
+  taxThresholdGrowth: 0.02,
   startDate: new Date(Date.UTC(2026, 8, 1)),
 };
 

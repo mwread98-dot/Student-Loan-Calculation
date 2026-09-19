@@ -117,12 +117,23 @@ export function ResultsPanel({ comparison }: { comparison: Comparison }) {
         <p className="rates-note">
           Future payments are discounted at{' '}
           <strong>{formatPercent(comparison.discountRate.rate)}</strong> —{' '}
-          {comparison.discountRate.label}
-          {comparison.discountRate.basis === 'override'
-            ? '.'
-            : `, chosen because the debt has about ${Math.round(comparison.discountRate.horizonYears)} years left to run.`}{' '}
-          That is the return you could get for certain instead of overpaying, so
-          it is the bar overpaying has to clear.
+          {comparison.discountRate.label}.{' '}
+          {comparison.discountRate.basis !== 'override' && (
+            <>
+              That gilt is the one whose term matches yours: the debt has about{' '}
+              {Math.round(comparison.discountRate.horizonYears)} years left to run.{' '}
+            </>
+          )}
+          It is what you could earn for certain instead of overpaying, so it is the
+          bar overpaying has to clear.
+          {!comparison.discountRate.taxFree &&
+            comparison.discountRate.effectiveTaxRate > 0.0005 && (
+              <>
+                {' '}
+                Tax lowers that bar, which makes overpaying look better than it
+                would if you could shelter the money in an ISA.
+              </>
+            )}
         </p>
 
         {minimumOnly.perLoan.length > 1 && (

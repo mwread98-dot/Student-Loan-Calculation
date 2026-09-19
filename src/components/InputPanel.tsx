@@ -1,8 +1,10 @@
 import { NumberField } from './NumberField';
 import {
   INTEREST_CAP_UNTIL_YEAR,
+  ISA_ALLOWANCE,
   PLAN_2,
   POSTGRADUATE,
+  TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
 } from '../domain/rates';
 import type { Assumptions, OverpaymentPlan } from '../domain/types';
 
@@ -185,6 +187,26 @@ export function InputPanel({
           onChange={(monthly) => onOverpaymentChange({ ...overpayment, monthly })}
         />
 
+        <label className="toggle-row" htmlFor="isa-available">
+          <input
+            id="isa-available"
+            type="checkbox"
+            checked={assumptions.isaAvailable}
+            onChange={(e) =>
+              onAssumptionsChange({ ...assumptions, isaAvailable: e.target.checked })
+            }
+          />
+          <span className="toggle-body">
+            <strong>ISA allowance available?</strong>
+            <span>
+              If you could hold this money in an ISA, the interest is tax free and
+              the whole return counts. Untick and we work out what you would
+              actually keep after tax at your salary. The allowance is £
+              {ISA_ALLOWANCE.toLocaleString('en-GB')} a year across all ISAs.
+            </span>
+          </span>
+        </label>
+
         {bothLoans && (
           <div className="field">
             <label htmlFor="target">
@@ -274,6 +296,30 @@ export function InputPanel({
             value={assumptions.interestCapUntilYear}
             onChange={(interestCapUntilYear) =>
               onAssumptionsChange({ ...assumptions, interestCapUntilYear })
+            }
+          />
+          <NumberField
+            id="tax-freeze-until"
+            label="Tax thresholds frozen until"
+            hint={`Frozen since 2022 and currently to April ${TAX_THRESHOLD_FREEZE_UNTIL_YEAR}. The freeze has been extended twice, so treat this as a guess.`}
+            min={2026}
+            max={2070}
+            value={assumptions.taxThresholdFreezeUntilYear}
+            onChange={(taxThresholdFreezeUntilYear) =>
+              onAssumptionsChange({ ...assumptions, taxThresholdFreezeUntilYear })
+            }
+          />
+          <NumberField
+            id="tax-threshold-growth"
+            label="Tax thresholds uprated by"
+            hint="Once the freeze ends. Frozen thresholds with rising pay quietly move you into higher bands, which cuts what you keep of any interest."
+            suffix="%"
+            step={0.25}
+            min={0}
+            max={15}
+            value={round(assumptions.taxThresholdGrowth * 100)}
+            onChange={(pct) =>
+              onAssumptionsChange({ ...assumptions, taxThresholdGrowth: pct / 100 })
             }
           />
           <NumberField

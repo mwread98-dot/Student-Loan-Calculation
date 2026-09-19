@@ -42,6 +42,17 @@ The verdict turns on rules that a generic loan calculator gets wrong:
 - **Careers that plateau.** You give pay growth *above inflation* and how many
   years it lasts; after that pay tracks inflation. Assuming real growth forever
   quietly flatters the case for overpaying.
+- **Tax on the alternative.** Tick the ISA box and the gilt yield is used
+  whole. Untick it and the return is taxed properly — the personal savings
+  allowance (£1,000, £500 or nothing by band), the £5,000 starting rate for
+  savings where pay is low enough, leftover personal allowance, and the taper
+  above £100,000. An additional rate taxpayer with no ISA sees a 5.2% gilt
+  become 2.9%, which changes the answer.
+- **Fiscal drag.** Tax thresholds are frozen to April 2031 and then uprated at
+  an assumed rate. Frozen thresholds with rising pay move people into higher
+  bands with no rate ever changing, so the after-tax return falls over the term
+  even if nothing is announced. The rate used is averaged across the life of
+  the debt rather than taken from today alone.
 - **Opportunity cost.** Both options are compared in present-value terms,
   discounting future payments at the **gilt yield matched to how long the debt
   has left to run** — the 30-year yield beyond fifteen years, the 10-year
@@ -284,6 +295,14 @@ annually:
 | Long-run RPI | RPI becomes CPIH in Feb 2030; CPI target plus the housing wedge | 2.2% |
 | 30-year gilt yield | [UK government bond yields](https://tradingeconomics.com/united-kingdom/30-year-bond-yield) | 5.75% |
 | 10-year gilt yield | [UK government bond yields](https://tradingeconomics.com/united-kingdom/government-bond-yield) | 5.20% |
+| Income tax bands | [Direct taxes: rates and allowances](https://commonslibrary.parliament.uk/research-briefings/cbp-10618/) | £12,570 / £50,270 / £125,140 |
+| Personal savings allowance | as above | £1,000 / £500 / £0 |
+| Starting rate for savings | as above | £5,000, frozen to 2031 |
+
+Income tax is modelled for England, Wales and Northern Ireland. Scottish
+taxpayers pay Scottish rates on employment income but UK rates on savings
+income, so the interest arithmetic still holds; the band their salary lands
+them in may not.
 
 Gilt yields in particular are a snapshot: both sat near multi-decade highs in
 September 2026, and at those levels a risk-free return is close to what a
@@ -365,6 +384,7 @@ src/domain/       the calculation, with no UI in it
   rates.ts        every government-set figure, sourced and dated
   engine.ts       month-by-month projection
   analysis.ts     scenario comparison, break-even, verdict
+  tax.ts          income tax on savings interest
   types.ts
 src/components/   the interface
 src/test/         unit tests for the engine and the comparison

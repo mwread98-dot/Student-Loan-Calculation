@@ -153,5 +153,42 @@ export const DEFAULT_THRESHOLD_GROWTH = 0.03;
 export const DEFAULT_REAL_SALARY_GROWTH = 0.02;
 export const DEFAULT_REAL_GROWTH_YEARS = 10;
 
+/**
+ * Income tax thresholds and rates for 2026/27, England, Wales and Northern
+ * Ireland. Used to work out what a saver actually keeps of the return their
+ * money could earn instead of being handed to the Student Loans Company.
+ * https://commonslibrary.parliament.uk/research-briefings/cbp-10618/
+ */
+export const TAX_BANDS_2026_27 = {
+  personalAllowance: 12_570,
+  personalAllowanceTaperFrom: 100_000,
+  basicRateLimit: 37_700,
+  higherRateThreshold: 50_270,
+  additionalRateThreshold: 125_140,
+  basicRate: 0.2,
+  higherRate: 0.4,
+  additionalRate: 0.45,
+  startingRateForSavings: 5_000,
+  psaBasic: 1_000,
+  psaHigher: 500,
+  psaAdditional: 0,
+};
+
+/**
+ * The personal allowance and higher rate threshold are frozen until April
+ * 2031, having already been frozen since 2022. Pay rises then drag people into
+ * higher bands with no rate ever changing, so the after-tax return on savings
+ * falls over time even if nothing is announced.
+ *
+ * The freeze has been extended twice. Treat the end date as an assumption.
+ */
+export const TAX_THRESHOLD_FREEZE_UNTIL_YEAR = 2031;
+
+/** Assumed uprating once the freeze ends. History suggests scepticism. */
+export const DEFAULT_TAX_THRESHOLD_GROWTH = 0.02;
+
+/** Annual ISA subscription limit, across all ISA types combined. */
+export const ISA_ALLOWANCE = 20_000;
+
 /** Student loan interest is added daily by the Student Loans Company. */
 export const DAYS_PER_YEAR = 365;

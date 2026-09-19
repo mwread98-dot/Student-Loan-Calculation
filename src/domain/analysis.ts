@@ -3,6 +3,7 @@ import {
   planConfig,
   project,
   rpiForTaxYear,
+  taxYearStarting,
   thresholdForTaxYear,
 } from './engine';
 import {
@@ -10,6 +11,7 @@ import {
   GILT_YIELD_30_YEAR,
   LONG_HORIZON_YEARS,
 } from './rates';
+import { bandsForTaxYear, netReturnRate } from './tax';
 import type {
   Assumptions,
   Comparison,
@@ -48,26 +50,77 @@ export function presentValueOf(months: MonthSnapshot[], rate: number): number {
 export function chooseDiscountRate(
   minimumOnly: ScenarioResult,
   assumptions: Assumptions,
+  savedPrincipal: number,
 ): DiscountRate {
   const horizonYears = minimumOnly.months.length / 12;
+  const long = horizonYears > LONG_HORIZON_YEARS;
+  const override = assumptions.opportunityRateOverride;
 
-  if (assumptions.opportunityRateOverride !== null) {
+  const grossRate = override ?? (long ? GILT_YIELD_30_YEAR : GILT_YIELD_10_YEAR);
+  const basis: DiscountRate['basis'] =
+    override !== null ? 'override' : long ? 'gilt-30' : 'gilt-10';
+  const source =
+    override !== null
+      ? 'the return you entered'
+      : long
+        ? 'the 30-year gilt yield'
+        : 'the 10-year gilt yield';
+
+  if (assumptions.isaAvailable || savedPrincipal <= 0) {
     return {
-      rate: assumptions.opportunityRateOverride,
-      basis: 'override',
+      rate: grossRate,
+      grossRate,
+      basis,
       horizonYears,
-      label: 'the return you entered',
+      taxFree: true,
+      effectiveTaxRate: 0,
+      label: `${source}, tax free in an ISA`,
     };
   }
 
-  const long = horizonYears > LONG_HORIZON_YEARS;
+  // Outside an ISA the answer changes over the life of the debt: pay rises,
+  // thresholds are frozen and then uprated, and the savings allowance shrinks
+  // as the borrower crosses into higher bands. Averaging the after-tax rate
+  // across the term reflects that drag in a single usable number.
+  let total = 0;
+  let years = 0;
+  for (let index = 0; index < minimumOnly.months.length; index += 12) {
+    const month = minimumOnly.months[index]!;
+    const [year, monthNumber] = month.date.split('-').map(Number);
+    const taxYear = taxYearStarting(
+      new Date(Date.UTC(year ?? 2026, (monthNumber ?? 1) - 1, 15)),
+    );
+    const bands = bandsForTaxYear(
+      assumptions.taxBands,
+      taxYear,
+      2026,
+      assumptions.taxThresholdFreezeUntilYear,
+      assumptions.taxThresholdGrowth,
+    );
+    total += netReturnRate(
+      grossRate,
+      savedPrincipal,
+      month.grossAnnualSalary,
+      bands,
+      false,
+    );
+    years += 1;
+  }
+
+  const rate = years > 0 ? total / years : grossRate;
+  const effectiveTaxRate = grossRate > 0 ? 1 - rate / grossRate : 0;
+
   return {
-    rate: long ? GILT_YIELD_30_YEAR : GILT_YIELD_10_YEAR,
-    basis: long ? 'gilt-30' : 'gilt-10',
+    rate,
+    grossRate,
+    basis,
     horizonYears,
-    label: long
-      ? 'the 30-year gilt yield'
-      : 'the 10-year gilt yield',
+    taxFree: false,
+    effectiveTaxRate,
+    label:
+      effectiveTaxRate > 0.0005
+        ? `${source} of ${formatPercent(grossRate)}, less ${formatPercent(effectiveTaxRate)} lost to tax on the interest`
+        : `${source}, with the savings allowance covering the tax`,
   };
 }
 
@@ -92,7 +145,12 @@ export function compare(
   // cashflows do not depend on the discount rate — so the horizon can be read
   // off the projection and fed back in without circularity. Both scenarios are
   // discounted at the same rate, or the comparison would be meaningless.
-  const discountRate = chooseDiscountRate(minimumOnly, assumptions);
+  // The money that would otherwise be kept back and earning interest. A lump
+  // sum plus a year of monthly payments is what is in hand in a typical year,
+  // which is the basis the savings allowance is judged against.
+  const savedPrincipal =
+    Math.max(0, overpayment.lumpSum) + Math.max(0, overpayment.monthly) * 12;
+  const discountRate = chooseDiscountRate(minimumOnly, assumptions, savedPrincipal);
   minimumOnly.presentValue = round2(
     presentValueOf(minimumOnly.months, discountRate.rate),
   );

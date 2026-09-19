@@ -10,6 +10,8 @@ import {
   RPI_FORECAST,
   RPI_LONG_RUN,
   RPI_REVERSION_YEARS,
+  TAX_BANDS_2026_27,
+  TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
 } from '../domain/rates';
 import type { Assumptions, Loan, OverpaymentPlan } from '../domain/types';
 
@@ -25,6 +27,10 @@ const baseAssumptions: Assumptions = {
   thresholdGrowth: 0.03,
   thresholdFreezeUntilYear: 2030,
   opportunityRateOverride: 0.04,
+  isaAvailable: true,
+  taxBands: TAX_BANDS_2026_27,
+  taxThresholdFreezeUntilYear: TAX_THRESHOLD_FREEZE_UNTIL_YEAR,
+  taxThresholdGrowth: 0.02,
   startDate: new Date(Date.UTC(2026, 8, 1)),
 };
 
@@ -311,5 +317,68 @@ describe('chooseDiscountRate', () => {
     });
 
     expect(large.discountRate.rate).toBeCloseTo(small.discountRate.rate, 6);
+  });
+});
+
+describe('the ISA question', () => {
+  const loans: Loan[] = [
+    { plan: 'plan2', balance: 14_000, firstRepaymentDueYear: 2016 },
+  ];
+  // Large enough that the interest exceeds any savings allowance.
+  const overpayment: OverpaymentPlan = { lumpSum: 40_000, monthly: 0, target: 'auto' };
+  const earner = { ...baseAssumptions, grossAnnualSalary: 70_000, opportunityRateOverride: null };
+
+  it('uses the gross yield when the money can sit in an ISA', () => {
+    const result = compare(loans, { ...earner, isaAvailable: true }, overpayment);
+    expect(result.discountRate.taxFree).toBe(true);
+    expect(result.discountRate.effectiveTaxRate).toBe(0);
+    expect(result.discountRate.rate).toBeCloseTo(result.discountRate.grossRate, 6);
+  });
+
+  it('docks tax from the return when it cannot', () => {
+    const result = compare(loans, { ...earner, isaAvailable: false }, overpayment);
+    expect(result.discountRate.taxFree).toBe(false);
+    expect(result.discountRate.effectiveTaxRate).toBeGreaterThan(0.3);
+    expect(result.discountRate.rate).toBeLessThan(result.discountRate.grossRate);
+  });
+
+  it('makes overpaying look better outside an ISA, because the alternative is worse', () => {
+    const inIsa = compare(loans, { ...earner, isaAvailable: true }, overpayment);
+    const taxed = compare(loans, { ...earner, isaAvailable: false }, overpayment);
+    expect(taxed.presentValueSaving).toBeGreaterThan(inIsa.presentValueSaving);
+  });
+
+  it('barely matters on a small sum a basic rate taxpayer can shelter anyway', () => {
+    // £3,000 at gilt yields throws off far less than the £1,000 allowance.
+    const small: OverpaymentPlan = { lumpSum: 3_000, monthly: 0, target: 'auto' };
+    const basicRate = { ...earner, grossAnnualSalary: 35_000 };
+    const inIsa = compare(loans, { ...basicRate, isaAvailable: true }, small);
+    const taxed = compare(loans, { ...basicRate, isaAvailable: false }, small);
+    expect(taxed.discountRate.rate).toBeCloseTo(inIsa.discountRate.rate, 6);
+    expect(taxed.discountRate.effectiveTaxRate).toBeCloseTo(0, 6);
+  });
+
+  it('hits a higher rate taxpayer harder than a basic rate one', () => {
+    const basic = compare(
+      loans,
+      { ...earner, grossAnnualSalary: 35_000, isaAvailable: false },
+      overpayment,
+    );
+    const higher = compare(
+      loans,
+      { ...earner, grossAnnualSalary: 70_000, isaAvailable: false },
+      overpayment,
+    );
+    expect(higher.discountRate.effectiveTaxRate).toBeGreaterThan(
+      basic.discountRate.effectiveTaxRate,
+    );
+  });
+
+  it('is unaffected by the ISA question when the discount rate is overridden', () => {
+    const fixed = { ...earner, opportunityRateOverride: 0.05 };
+    const inIsa = compare(loans, { ...fixed, isaAvailable: true }, overpayment);
+    const taxed = compare(loans, { ...fixed, isaAvailable: false }, overpayment);
+    expect(inIsa.discountRate.grossRate).toBeCloseTo(0.05, 6);
+    expect(taxed.discountRate.grossRate).toBeCloseTo(0.05, 6);
   });
 });
