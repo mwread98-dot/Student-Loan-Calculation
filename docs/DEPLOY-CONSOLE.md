@@ -165,7 +165,19 @@ step 6 fails to authenticate even though the role looks correct.
 2. Select the **Variables** tab — not *Secrets*.
 3. Click **New repository variable**:
    - **Name:** `AWS_DEPLOY_ROLE_ARN`
-   - **Value:** the `DeployRoleArn` from step 4
+   - **Value:** the **`DeployRoleArn`** from step 4
+
+   Take it from the stack's **Outputs** tab, not from anywhere else on this
+   page. It contains **`:role/`** and ends in `-github-deploy`:
+
+   ```
+   arn:aws:iam::123456789012:role/student-loan-calculator-site-github-deploy
+   ```
+
+   If what you have contains `:oidc-provider/`, that is the identity provider,
+   which cannot be assumed — the deploy fails with the rather unhelpful
+   `Could not assume role with OIDC: Request ARN is invalid`. The workflow now
+   checks this before doing anything else and tells you which one you have.
 
 A role ARN is not sensitive, which is the point of using OIDC — there is no
 access key to leak. If your stack is not in `eu-west-2`, add a second variable
@@ -251,6 +263,7 @@ bucket → Empty**, type the confirmation, then **Delete**.
 | `Provider with url ... already exists` | The account already has a GitHub OIDC provider. Delete the rolled-back stack and recreate it with `CreateOidcProvider` = `false`. See the note in step 4. |
 | A stack is stuck in `ROLLBACK_COMPLETE` | Nothing was created; delete it before trying again. CloudFormation will not reuse the name until you do. |
 | Deploy run fails at *Get temporary AWS credentials* | `AWS_DEPLOY_ROLE_ARN` is missing, mistyped, or saved as a *Secret* rather than a *Variable*. |
+| `Could not assume role with OIDC: Request ARN is invalid` | `AWS_DEPLOY_ROLE_ARN` holds the OIDC provider ARN (`:oidc-provider/`) instead of the role ARN (`:role/`). Copy `DeployRoleArn` from the CI stack's Outputs tab. |
 | Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | Either the branch does not match `GitHubRefPattern` — you are deploying from something other than `main` — or `GitHubRepository` has a `.git` suffix or wrong capitalisation, which passes the stack's validation but not GitHub's token. Update the `student-loan-calculator-ci` stack with the corrected value. |
 | Site shows an old version | CloudFront cache. The workflow invalidates it, but propagation takes a minute; hard-refresh. |
 | **Actions** tab shows no *Run workflow* button | The workflow file is not on the default branch yet — finish step 1. |

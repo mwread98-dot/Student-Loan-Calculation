@@ -137,10 +137,16 @@ Resources:
 
 Outputs:
   DeployRoleArn:
-    Description: Set this as the AWS_DEPLOY_ROLE_ARN repository variable in GitHub.
+    Description: >-
+      Set this, and only this, as the AWS_DEPLOY_ROLE_ARN repository variable
+      in GitHub. It ends in :role/ — if yours ends in :oidc-provider/ you have
+      copied the wrong output.
     Value: !GetAtt DeployRole.Arn
 
   OidcProviderArn:
     Condition: ShouldCreateProvider
-    Description: The GitHub Actions OIDC provider created for this account.
+    Description: >-
+      The GitHub Actions OIDC provider created for this account. This is NOT
+      the value for AWS_DEPLOY_ROLE_ARN — an identity provider cannot be
+      assumed. Use DeployRoleArn above for that.
     Value: !Ref GitHubOidcProvider

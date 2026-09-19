@@ -21,11 +21,33 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      # Checked before anything else: AWS answers a malformed ARN with
+      # "Request ARN is invalid" after a minute of retries, which says nothing
+      # about what is actually wrong. Two seconds here saves a whole build.
+      - name: Check the deploy role is configured
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          hint='Take it from the DeployRoleArn output of the CI stack, and set it under Settings -> Secrets and variables -> Actions -> Variables.'
+          if [[ -z "$ROLE_ARN" ]]; then
+            echo "::error::AWS_DEPLOY_ROLE_ARN is not set. $hint"
+            exit 1
+          fi
+          if [[ "$ROLE_ARN" == *":oidc-provider/"* ]]; then
+            echo "::error::AWS_DEPLOY_ROLE_ARN is the OIDC provider ARN, not the deploy role ARN — an identity provider cannot be assumed. You want arn:aws:iam::<account>:role/<something>-github-deploy. $hint"
+            exit 1
+          fi
+          if [[ ! "$ROLE_ARN" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "::error::AWS_DEPLOY_ROLE_ARN is not an IAM role ARN. Expected arn:aws:iam::<account>:role/<name>, got '$ROLE_ARN'. $hint"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci --no-audit --no-fund
