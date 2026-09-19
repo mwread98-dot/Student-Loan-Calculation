@@ -237,6 +237,28 @@ When it finishes, the **Outputs** tab shows `DnsTarget` — something like
 
 ---
 
+## Diagnosing a rejected login
+
+`Not authorized to perform sts:AssumeRoleWithWebIdentity` means AWS compared
+the token against the role's trust policy and refused, without saying what it
+compared. The deploy workflow prints the identity being presented just before
+it tries, under **Show the identity GitHub will present**:
+
+```
+subject  (sub): repo:owner@1234/repo@5678:ref:refs/heads/main
+audience (aud): sts.amazonaws.com
+```
+
+Two things must line up with it:
+
+1. **IAM → Roles → the deploy role → Trust relationships.** The `sub` condition
+   must allow that exact string. The template allows two patterns, one per
+   subject format; if yours shows only a single `repo:owner/name:...` string,
+   the stack is running an older template and needs updating.
+2. **IAM → Identity providers → `token.actions.githubusercontent.com` →
+   Audiences.** Must list `sts.amazonaws.com`. This is worth checking whenever
+   you have reused a provider created by something else.
+
 ## A note on subject claims
 
 AWS decides whether to trust a run by comparing the *subject claim* in

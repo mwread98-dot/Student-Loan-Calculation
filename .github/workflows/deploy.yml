@@ -68,6 +68,31 @@ jobs:
       - name: Build
         run: npm run build
 
+      # AWS answers a trust-policy mismatch with a bare "Not authorized to
+      # perform sts:AssumeRoleWithWebIdentity" and will not say what it
+      # compared, so print the identity being presented. Without this, the one
+      # value that decides the outcome is the only one nobody can see.
+      - name: Show the identity GitHub will present
+        run: |
+          set -euo pipefail
+          token=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
+            | jq -r '.value')
+          # The token is a credential in its own right: mask it immediately so
+          # it cannot reach the log, and print only the two claims that matter.
+          echo "::add-mask::$token"
+          part=$(printf '%s' "$token" | cut -d. -f2)
+          pad=$(( (4 - ${#part} % 4) % 4 ))
+          part="${part}$(printf '=%.0s' $(seq 1 $pad 2>/dev/null))"
+          claims=$(printf '%s' "$part" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+          echo "subject  (sub): $(printf '%s' "$claims" | jq -r .sub)"
+          echo "audience (aud): $(printf '%s' "$claims" | jq -r .aud)"
+          echo
+          echo "The role's trust policy must allow that exact subject, and the"
+          echo "identity provider must list that audience. Compare against"
+          echo "IAM -> Roles -> <the deploy role> -> Trust relationships."
+
       - name: Get temporary AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
