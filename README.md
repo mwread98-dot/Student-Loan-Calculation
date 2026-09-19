@@ -157,9 +157,11 @@ aws cloudformation deploy \
     GitHubRepository=mwread98-dot/Student-Loan-Calculation
 ```
 
-> If the account already has a GitHub Actions OIDC provider, add
-> `CreateOidcProvider=false ExistingOidcProviderArn=arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com`.
-> An AWS account may only have one provider per issuer.
+> If this fails with `Provider with url ... already exists`, the account
+> already has a GitHub OIDC provider — it may hold only one per issuer. Delete
+> the failed stack and add `CreateOidcProvider=false` to reuse it;
+> `ExistingOidcProviderArn` can stay unset, because the ARN follows from the
+> issuer URL and the template derives it.
 
 Print the role ARN:
 

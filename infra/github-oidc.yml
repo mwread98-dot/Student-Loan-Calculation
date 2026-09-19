@@ -44,10 +44,16 @@ Parameters:
   ExistingOidcProviderArn:
     Type: String
     Default: ''
-    Description: ARN of the existing provider, when CreateOidcProvider is false.
+    Description: >-
+      Only needed to point at a provider that is not the standard GitHub one.
+      Left blank with CreateOidcProvider set to false, the account's existing
+      GitHub provider is used — its ARN is always
+      arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com,
+      so there is nothing to look up.
 
 Conditions:
   ShouldCreateProvider: !Equals [!Ref CreateOidcProvider, 'true']
+  HasExplicitProviderArn: !Not [!Equals [!Ref ExistingOidcProviderArn, '']]
 
 Resources:
   GitHubOidcProvider:
@@ -75,7 +81,13 @@ Resources:
               Federated: !If
                 - ShouldCreateProvider
                 - !Ref GitHubOidcProvider
-                - !Ref ExistingOidcProviderArn
+                # An account may hold only one provider per issuer, and its ARN
+                # is fully determined by the issuer URL, so reuse can be worked
+                # out rather than asked for.
+                - !If
+                  - HasExplicitProviderArn
+                  - !Ref ExistingOidcProviderArn
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:

@@ -127,15 +127,32 @@ Open the **Outputs** tab and copy **`DeployRoleArn`**. It looks like
 `arn:aws:iam::123456789012:role/student-loan-calculator-site-github-deploy`.
 
 <details>
-<summary>If the stack fails with "provider already exists"</summary>
+<summary>If the stack fails with "Provider ... already exists"</summary>
 
-An AWS account may only have one OIDC provider per issuer, and yours already
-has one for GitHub. Find its ARN under **IAM → Identity providers →
-`token.actions.githubusercontent.com`**, then delete the failed stack and
-create it again with:
+```
+Provider with url https://token.actions.githubusercontent.com already exists.
+(Service: Iam, Status Code: 409)
+```
 
-- `CreateOidcProvider` = `false`
-- `ExistingOidcProviderArn` = the ARN you just found
+An AWS account may hold only one OIDC provider per issuer, and yours already
+has one for GitHub — from an earlier project, or created for you. Nothing is
+wrong; the stack just needs to reuse it instead.
+
+1. **Delete the rolled-back stack.** Select it and click **Delete**. A stack in
+   `ROLLBACK_COMPLETE` cannot be retried in place, and the name stays taken
+   until it is gone.
+2. **Create it again**, changing one parameter:
+   - `CreateOidcProvider` = **`false`**
+   - `ExistingOidcProviderArn` = leave blank
+
+   The ARN of a GitHub provider is fully determined by the issuer URL, so the
+   template works it out. There is nothing to look up.
+
+While you are there, it is worth checking the provider you are about to reuse
+accepts the right audience. Open **IAM → Identity providers →
+`token.actions.githubusercontent.com`** and confirm `sts.amazonaws.com` is
+listed under **Audiences**. If it is not, add it — otherwise the deploy in
+step 6 fails to authenticate even though the role looks correct.
 
 </details>
 
@@ -231,6 +248,8 @@ bucket → Empty**, type the confirmation, then **Delete**.
 | Stack fails instantly on step 4 | The IAM acknowledgement checkbox was not ticked. |
 | `Parameter GitHubRepository failed to satisfy constraint` | The value is not bare `owner/repo`. Usually the pasted URL (`https://github.com/...`), or a leading/trailing space, or backticks picked up with a copy. |
 | `Export ... cannot be found` | `SiteStackName` does not match step 3's stack name, or that stack is in a different region. |
+| `Provider with url ... already exists` | The account already has a GitHub OIDC provider. Delete the rolled-back stack and recreate it with `CreateOidcProvider` = `false`. See the note in step 4. |
+| A stack is stuck in `ROLLBACK_COMPLETE` | Nothing was created; delete it before trying again. CloudFormation will not reuse the name until you do. |
 | Deploy run fails at *Get temporary AWS credentials* | `AWS_DEPLOY_ROLE_ARN` is missing, mistyped, or saved as a *Secret* rather than a *Variable*. |
 | Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | Either the branch does not match `GitHubRefPattern` — you are deploying from something other than `main` — or `GitHubRepository` has a `.git` suffix or wrong capitalisation, which passes the stack's validation but not GitHub's token. Update the `student-loan-calculator-ci` stack with the corrected value. |
 | Site shows an old version | CloudFront cache. The workflow invalidates it, but propagation takes a minute; hard-refresh. |
