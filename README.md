@@ -97,6 +97,10 @@ Then set `main` as the default under **Settings → General → Default branch**
 and delete the old branch. Until you do, deploys can still be triggered by hand
 from the **Actions** tab.
 
+> **Prefer clicking to typing?** [docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)
+> walks through the same thing entirely in the AWS console and GitHub web UI,
+> with no AWS CLI and no Node installed locally.
+
 ### The hosting
 
 The site is static, so it needs no servers: a private **S3** bucket served
@@ -320,6 +324,8 @@ infra/
 scripts/
   deploy.sh       build and publish in one command
   smoke.mjs       end-to-end browser checks
+docs/
+  DEPLOY-CONSOLE.md  the same deploy, click by click
 ```
 
 ## Licence
