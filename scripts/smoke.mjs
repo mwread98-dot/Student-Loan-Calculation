@@ -44,20 +44,43 @@ try {
   let code = await verdictCode(page);
   check('recommends keeping your money when the debt is written off', code === 'do-not-overpay', code);
 
+  console.log('\nCareer assumptions');
+  await page.fill('#real-growth', '2');
+  await page.fill('#real-growth-years', '10');
+  await page.waitForTimeout(300);
+  check('accepts above-inflation pay growth and a horizon for it',
+    (await page.locator('#real-growth').inputValue()) === '2' &&
+    (await page.locator('#real-growth-years').inputValue()) === '10');
+
+  console.log('\nThe discount rate');
+  await page.locator('details.advanced summary').click();
+  const discountNote = async () =>
+    (await page.locator('.rates-note').last().textContent()) ?? '';
+  check('defaults to a gilt yield and says which', /gilt yield/i.test(await discountNote()),
+    await discountNote());
+
   console.log('\nA small balance on a high salary');
   await page.fill('#plan2-balance', '8000');
   await page.fill('#salary', '85000');
-  await page.fill('#opportunity', '1');
   await page.fill('#lump-sum', '8000');
+  // Drive the alternative return down so the loan is clearly the worse deal.
+  await page.fill('#discount-override', '1');
   await page.waitForTimeout(300);
   code = await verdictCode(page);
-  check('recommends overpaying when the loan clears anyway', code === 'overpay', code);
+  check('recommends overpaying when the loan costs more than the alternative',
+    code === 'overpay', code);
 
   console.log('\nWhen the money earns more elsewhere');
-  await page.fill('#opportunity', '15');
+  await page.fill('#discount-override', '15');
   await page.waitForTimeout(300);
   code = await verdictCode(page);
-  check('flips to keeping your money at a high alternative return', code === 'do-not-overpay', code);
+  check('flips to keeping your money at a high alternative return',
+    code === 'do-not-overpay', code);
+
+  await page.fill('#discount-override', '0');
+  await page.waitForTimeout(300);
+  check('falls back to a gilt yield when the override is cleared',
+    /gilt yield/i.test(await discountNote()), await discountNote());
 
   console.log('\nBoth loans at once');
   await page.check('#has-postgrad');

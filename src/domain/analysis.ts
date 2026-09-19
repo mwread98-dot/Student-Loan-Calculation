@@ -1,7 +1,19 @@
-import { interestRate, planConfig, project, thresholdForTaxYear } from './engine';
+import {
+  interestRate,
+  planConfig,
+  project,
+  rpiForTaxYear,
+  thresholdForTaxYear,
+} from './engine';
+import {
+  GILT_YIELD_10_YEAR,
+  GILT_YIELD_30_YEAR,
+  LONG_HORIZON_YEARS,
+} from './rates';
 import type {
   Assumptions,
   Comparison,
+  DiscountRate,
   Loan,
   LoanPlanId,
   MonthSnapshot,
@@ -24,6 +36,42 @@ export function presentValueOf(months: MonthSnapshot[], rate: number): number {
 }
 
 /**
+ * The return the borrower's money could earn instead, used to discount both
+ * scenarios.
+ *
+ * Gilt yields are the benchmark because the decision is between certain money
+ * now and certain money later, and government bonds are the closest available
+ * thing to a certain return over a fixed term. The yield is matched to the
+ * term: a debt with decades left is a long-dated decision, one nearly paid off
+ * is not.
+ */
+export function chooseDiscountRate(
+  minimumOnly: ScenarioResult,
+  assumptions: Assumptions,
+): DiscountRate {
+  const horizonYears = minimumOnly.months.length / 12;
+
+  if (assumptions.opportunityRateOverride !== null) {
+    return {
+      rate: assumptions.opportunityRateOverride,
+      basis: 'override',
+      horizonYears,
+      label: 'the return you entered',
+    };
+  }
+
+  const long = horizonYears > LONG_HORIZON_YEARS;
+  return {
+    rate: long ? GILT_YIELD_30_YEAR : GILT_YIELD_10_YEAR,
+    basis: long ? 'gilt-30' : 'gilt-10',
+    horizonYears,
+    label: long
+      ? 'the 30-year gilt yield'
+      : 'the 10-year gilt yield',
+  };
+}
+
+/**
  * Compare paying the minimum with paying the minimum plus a voluntary
  * overpayment, and say which leaves you better off.
  *
@@ -40,6 +88,18 @@ export function compare(
   const minimumOnly = project(loans, assumptions, NO_OVERPAYMENT);
   const withOverpayment = project(loans, assumptions, overpayment);
 
+  // The discount rate depends on how long the debt has left to run, and the
+  // cashflows do not depend on the discount rate — so the horizon can be read
+  // off the projection and fed back in without circularity. Both scenarios are
+  // discounted at the same rate, or the comparison would be meaningless.
+  const discountRate = chooseDiscountRate(minimumOnly, assumptions);
+  minimumOnly.presentValue = round2(
+    presentValueOf(minimumOnly.months, discountRate.rate),
+  );
+  withOverpayment.presentValue = round2(
+    presentValueOf(withOverpayment.months, discountRate.rate),
+  );
+
   const nominalDifference = withOverpayment.totalPaid - minimumOnly.totalPaid;
   const presentValueSaving =
     minimumOnly.presentValue - withOverpayment.presentValue;
@@ -55,6 +115,7 @@ export function compare(
   const breakEvenRate = solveBreakEven(minimumOnly, withOverpayment);
 
   return {
+    discountRate,
     minimumOnly,
     withOverpayment,
     nominalDifference: round2(nominalDifference),
@@ -65,6 +126,7 @@ export function compare(
     verdict: buildVerdict({
       loans,
       assumptions,
+      discountRate,
       minimumOnly,
       withOverpayment,
       presentValueSaving,
@@ -124,6 +186,7 @@ function solveBreakEven(
 interface VerdictInput {
   loans: Loan[];
   assumptions: Assumptions;
+  discountRate: DiscountRate;
   minimumOnly: ScenarioResult;
   withOverpayment: ScenarioResult;
   presentValueSaving: number;
@@ -136,6 +199,7 @@ interface VerdictInput {
 function buildVerdict(input: VerdictInput): Verdict {
   const {
     assumptions,
+    discountRate,
     minimumOnly,
     withOverpayment,
     presentValueSaving,
@@ -192,12 +256,12 @@ function buildVerdict(input: VerdictInput): Verdict {
     );
   }
 
-  const rateSummary = currentRates(input.loans, assumptions);
+  const rateSummary = currentRates(input.loans, assumptions, discountRate);
   for (const line of rateSummary) reasoning.push(line);
 
   if (breakEvenRate !== null) {
     reasoning.push(
-      `The two options break even at a return of ${formatPercent(breakEvenRate)}. Beat that with your money elsewhere and keeping the cash wins; fall short and overpaying wins. You told us you can earn ${formatPercent(assumptions.opportunityRate)}.`,
+      `The two options break even at a return of ${formatPercent(breakEvenRate)} AER. Beat that with your money elsewhere and keeping the cash wins; fall short and overpaying wins. The comparison uses ${formatPercent(discountRate.rate)}, ${discountRate.label}.`,
     );
   } else if (nominalDifference >= 0) {
     reasoning.push(
@@ -233,8 +297,18 @@ function buildVerdict(input: VerdictInput): Verdict {
 }
 
 /** Describe the interest each loan is charging right now, against the alternative. */
-function currentRates(loans: Loan[], assumptions: Assumptions): string[] {
+function currentRates(
+  loans: Loan[],
+  assumptions: Assumptions,
+  discountRate: DiscountRate,
+): string[] {
   const lines: string[] = [];
+  const thisYearRpi = rpiForTaxYear(
+    2026,
+    assumptions.rpiForecast,
+    assumptions.rpiLongRun,
+    assumptions.rpiReversionYears,
+  );
   for (const loan of loans) {
     if (loan.balance <= 0) continue;
     const config = planConfig(loan.plan);
@@ -261,15 +335,15 @@ function currentRates(loans: Loan[], assumptions: Assumptions): string[] {
     const rate = interestRate(
       loan.plan,
       assumptions.grossAnnualSalary,
-      assumptions.rpi,
+      thisYearRpi,
       assumptions.interestCap,
       lower,
       upper,
     );
     const comparison =
-      rate > assumptions.opportunityRate
-        ? `above the ${formatPercent(assumptions.opportunityRate)} you say your money could earn elsewhere`
-        : `below the ${formatPercent(assumptions.opportunityRate)} you say your money could earn elsewhere`;
+      rate > discountRate.rate
+        ? `above the ${formatPercent(discountRate.rate)} your money could earn risk-free`
+        : `below the ${formatPercent(discountRate.rate)} your money could earn risk-free`;
     lines.push(
       `Your ${config.label} is charging ${formatPercent(rate)} at your current salary — ${comparison}.`,
     );
@@ -289,7 +363,11 @@ export function salarySensitivity(
   growthRates: number[],
 ): { growth: number; presentValueSaving: number; writtenOff: number }[] {
   return growthRates.map((growth) => {
-    const result = compare(loans, { ...assumptions, salaryGrowth: growth }, overpayment);
+    const result = compare(
+      loans,
+      { ...assumptions, realSalaryGrowth: growth },
+      overpayment,
+    );
     return {
       growth,
       presentValueSaving: result.presentValueSaving,

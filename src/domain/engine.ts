@@ -49,6 +49,39 @@ export function thresholdForTaxYear(
 }
 
 /**
+ * RPI for a tax year: the published forecast where one exists, then a linear
+ * glide to the long-run anchor.
+ *
+ * The glide matters because the anchor is not simply "the average of the
+ * past" — RPI is redefined as CPIH from 2030, so the level it reverts to is
+ * structurally lower than the level it is coming from.
+ */
+export function rpiForTaxYear(
+  taxYear: number,
+  forecast: { taxYear: number; rate: number }[],
+  longRun: number,
+  reversionYears: number,
+): number {
+  if (forecast.length === 0) return longRun;
+  const sorted = [...forecast].sort((a, b) => a.taxYear - b.taxYear);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+
+  if (taxYear <= first.taxYear) return first.rate;
+  if (taxYear <= last.taxYear) {
+    // Hold the most recent forecast at or below this year, so a gap in the
+    // published series does not become a gap in the projection.
+    let held = first.rate;
+    for (const point of sorted) if (point.taxYear <= taxYear) held = point.rate;
+    return held;
+  }
+
+  const yearsPast = taxYear - last.taxYear;
+  if (reversionYears <= 0 || yearsPast >= reversionYears) return longRun;
+  return last.rate + (longRun - last.rate) * (yearsPast / reversionYears);
+}
+
+/**
  * The annual interest rate charged on a loan at a given income.
  *
  * Plan 2 tapers on a straight line from RPI at the lower threshold to RPI + 3%
@@ -104,6 +137,9 @@ export function writeOffDate(loan: Loan): Date {
     Date.UTC(loan.firstRepaymentDueYear + config.writeOffYears, 3, 6),
   );
 }
+
+/** Interest years run 1 September to 31 August; September is month index 8. */
+const SEPTEMBER = 8;
 
 /** A month as a single comparable number, so day-of-month cannot skew comparisons. */
 function monthOrdinal(date: Date): number {
@@ -178,9 +214,11 @@ export function project(
   let totalPaid = 0;
   let totalInterest = 0;
   let totalWrittenOff = 0;
-  let presentValue = 0;
   let finalPaymentDate: string | null = null;
   let lumpSumRemaining = Math.max(0, overpayment.lumpSum);
+  // Accumulated because inflation, and therefore nominal pay growth, varies
+  // year to year; a single compounding factor cannot express the path.
+  let salaryFactor = 1;
 
   for (let index = 0; index < MAX_MONTHS; index += 1) {
     const anyActive = [...state.values()].some((s) => s.balance > 0);
@@ -188,9 +226,29 @@ export function project(
 
     const taxYear = taxYearStarting(cursor);
     const yearsElapsed = index / 12;
-    const grossAnnualSalary =
-      assumptions.grossAnnualSalary *
-      Math.pow(1 + assumptions.salaryGrowth, yearsElapsed);
+    const rpi = rpiForTaxYear(
+      taxYear,
+      assumptions.rpiForecast,
+      assumptions.rpiLongRun,
+      assumptions.rpiReversionYears,
+    );
+
+    // Pay keeps pace with inflation throughout, and gains on it only while the
+    // borrower is still climbing. Compounding the two rather than adding them
+    // keeps a "2% above inflation" input meaning exactly that.
+    const stillClimbing = yearsElapsed < assumptions.realGrowthYears;
+    const nominalGrowth =
+      (1 + rpi) * (1 + (stillClimbing ? assumptions.realSalaryGrowth : 0)) - 1;
+    // Advanced from the second month onwards, so month zero is priced at the
+    // salary actually entered rather than one month's growth beyond it.
+    if (index > 0) salaryFactor *= Math.pow(1 + nominalGrowth, 1 / 12);
+    const grossAnnualSalary = assumptions.grossAnnualSalary * salaryFactor;
+
+    // The announced cap covers a single interest year. Past its expiry the
+    // statutory RPI + margin applies again.
+    const capInForce =
+      monthOrdinal(cursor) < assumptions.interestCapUntilYear * 12 + SEPTEMBER;
+    const capThisMonth = capInForce ? assumptions.interestCap : null;
 
     let interestThisMonth = 0;
     let mandatoryThisMonth = 0;
@@ -238,8 +296,8 @@ export function project(
       const annualRate = interestRate(
         plan,
         grossAnnualSalary,
-        assumptions.rpi,
-        assumptions.interestCap,
+        rpi,
+        capThisMonth,
         lower,
         upper,
       );
@@ -303,8 +361,6 @@ export function project(
     totalPaid += paidThisMonth;
     totalInterest += interestThisMonth;
     totalWrittenOff += writtenOffThisMonth;
-    presentValue +=
-      paidThisMonth / Math.pow(1 + assumptions.opportunityRate, index / 12);
     if (paidThisMonth > 0) finalPaymentDate = isoMonth(cursor);
 
     const balances = {} as Record<LoanPlanId, number>;
@@ -316,6 +372,7 @@ export function project(
       index,
       date: isoMonth(cursor),
       grossAnnualSalary: round2(grossAnnualSalary),
+      rpi,
       balances,
       interestAccrued: round2(interestThisMonth),
       mandatoryPaid: round2(mandatoryThisMonth),
@@ -342,7 +399,8 @@ export function project(
     months,
     totalPaid: round2(totalPaid),
     totalInterest: round2(totalInterest),
-    presentValue: round2(presentValue),
+    // Filled in by the comparison, which decides the discount rate.
+    presentValue: 0,
     clearedDate: everythingRepaid ? finalPaymentDate : null,
     writtenOff: round2(totalWrittenOff),
     finalPaymentDate,

@@ -32,10 +32,23 @@ The verdict turns on rules that a generic loan calculator gets wrong:
 - **Daily compounding**, as the Student Loans Company applies it.
 - **The threshold freeze.** The Plan 2 threshold is frozen at £29,385 until
   April 2030, so repayments rise in real terms until then.
+- **The cap expiring.** The 6% cap covers one interest year, to 31 August 2027.
+  It is applied for exactly that, not for thirty years.
+- **Inflation that moves.** RPI follows the OBR's published forecast to 2029,
+  then settles at a long-run anchor. That anchor is deliberately low, because
+  from February 2030 RPI is calculated as CPIH — roughly a percentage point
+  below the old RPI. Since that covers most of a thirty-year term, it moves the
+  answer more than any near-term forecast.
+- **Careers that plateau.** You give pay growth *above inflation* and how many
+  years it lasts; after that pay tracks inflation. Assuming real growth forever
+  quietly flatters the case for overpaying.
 - **Opportunity cost.** Both options are compared in present-value terms,
-  discounting future payments at the rate your money would earn if you kept it.
-  That produces a **break-even return**: beat it elsewhere and keeping the cash
-  wins; fall short and overpaying wins.
+  discounting future payments at the **gilt yield matched to how long the debt
+  has left to run** — the 30-year yield beyond fifteen years, the 10-year
+  within it. Government bonds are the benchmark because the choice is between
+  certain money now and certain money later. That produces a **break-even
+  return**: beat it elsewhere and keeping the cash wins; fall short and
+  overpaying wins.
 
 It also shows how the answer moves across a range of salary paths, because
 career trajectory drives the result more than anything else on the form.
@@ -262,7 +275,25 @@ After editing, update `RATES_LAST_CHECKED`, run `npm run test`, and push. The
 unit tests assert the headline figures, so they will fail loudly if a change
 is half-applied.
 
-As shipped, the figures are for **2026/27**:
+Also worth a look each year, though they move continuously rather than
+annually:
+
+| Input | Source | As shipped |
+| --- | --- | --- |
+| RPI forecast to 2029 | [OBR Economic and fiscal outlook](https://obr.uk/efo/economic-and-fiscal-outlook-march-2026/) | 3.1% in 2026, 2.9% to 2029 |
+| Long-run RPI | RPI becomes CPIH in Feb 2030; CPI target plus the housing wedge | 2.2% |
+| 30-year gilt yield | [UK government bond yields](https://tradingeconomics.com/united-kingdom/30-year-bond-yield) | 5.75% |
+| 10-year gilt yield | [UK government bond yields](https://tradingeconomics.com/united-kingdom/government-bond-yield) | 5.20% |
+
+Gilt yields in particular are a snapshot: both sat near multi-decade highs in
+September 2026, and at those levels a risk-free return is close to what a
+student loan charges, which makes overpaying roughly neutral for people who
+would clear the loan anyway. Wiring `GILT_YIELD_30_YEAR` and
+`GILT_YIELD_10_YEAR` to a market data feed would keep that honest without
+anyone remembering to look; they are hard-coded only to keep the site free of
+API keys and backend.
+
+As shipped, the statutory figures are for **2026/27**:
 
 | | Plan 2 | Postgraduate |
 | --- | --- | --- |
@@ -273,7 +304,8 @@ As shipped, the figures are for **2026/27**:
 | Rate cap (to 31 Aug 2027) | 6% | 6% |
 | Written off | 30 years after first due | 30 years after first due |
 
-RPI is 4.1% for 1 September 2026 to 31 August 2027.
+RPI is 4.1% for 1 September 2026 to 31 August 2027; the projection moves to
+the forecast path from there.
 
 ---
 
@@ -283,18 +315,34 @@ RPI is 4.1% for 1 September 2026 to 31 August 2027.
 either repaid or cancelled. Within each month it:
 
 1. Cancels any loan that has reached its 30-year anniversary.
-2. Accrues interest, compounded daily, at a rate that depends on income for
-   Plan 2 and is flat for Postgraduate loans.
-3. Takes the mandatory deduction for each plan separately, as PAYE does,
+2. Works out that year's RPI, and grows pay by inflation plus any real growth
+   still running.
+3. Accrues interest, compounded daily, at a rate that depends on income for
+   Plan 2 and is flat for Postgraduate loans, held to the cap only while the
+   cap is in force.
+4. Takes the mandatory deduction for each plan separately, as PAYE does,
    rounded down to whole pounds.
-4. Applies any voluntary overpayment, by default against whichever loan is
+5. Applies any voluntary overpayment, by default against whichever loan is
    charging the higher rate.
+
+Because inflation drives both the interest charged and the pay that repays it,
+it reaches the answer through two channels at once, and cannot be cancelled out
+by a cap.
 
 `src/domain/analysis.ts` runs that twice — once on minimum repayments, once
 with the overpayment — and compares the two payment streams in present-value
-terms. Because neither stream depends on the discount rate, the break-even
-return is found by re-discounting the same cashflows rather than
-re-simulating.
+terms.
+
+Neither stream depends on the discount rate, which makes two things cheap and
+exact. The remaining term can be read off the minimum-repayment projection and
+used to pick the right gilt — no circularity, and an overpayment cannot move
+the goalposts by shortening the term. And the break-even return is a
+one-dimensional root find over the same cashflows rather than a re-simulation.
+
+One convention to know: loan interest is a nominal rate compounded daily, while
+the discount rate is an effective annual one. A 6% loan therefore shows a
+break-even near 6.2%, because 6% compounded daily *is* 6.18% effective. Compare
+the break-even figure against an AER, which is what savings accounts quote.
 
 ### Adding another repayment plan
 

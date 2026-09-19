@@ -12,7 +12,7 @@ import {
 import { formatMoney, salarySensitivity } from '../domain/analysis';
 import type { Assumptions, Loan, OverpaymentPlan } from '../domain/types';
 
-const GROWTH_RATES = [0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07];
+const GROWTH_RATES = [0, 0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05];
 
 interface Props {
   loans: Loan[];
@@ -28,7 +28,7 @@ interface Props {
 export function SensitivityChart({ loans, assumptions, overpayment }: Props) {
   const rows = salarySensitivity(loans, assumptions, overpayment, GROWTH_RATES).map(
     (row) => ({
-      label: `${(row.growth * 100).toFixed(0)}%`,
+      label: `${(row.growth * 100).toFixed(row.growth * 100 % 1 === 0 ? 0 : 1)}%`,
       saving: row.presentValueSaving,
       writtenOff: row.writtenOff,
     }),
@@ -40,9 +40,13 @@ export function SensitivityChart({ loans, assumptions, overpayment }: Props) {
   const formatTick = (value: number) => {
     const sign = value < 0 ? '−' : '';
     const magnitude = Math.abs(value);
-    return peak >= 2_000
-      ? `${sign}£${Math.round(magnitude / 1000)}k`
-      : `${sign}£${Math.round(magnitude)}`;
+    if (peak < 2_000) return `${sign}£${Math.round(magnitude)}`;
+    // Ticks do not always land on whole thousands; rounding them to one would
+    // label a £4,500 gridline "£5k" and put it next to another reading "£3k".
+    const thousands = magnitude / 1000;
+    const text =
+      Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(1);
+    return `${sign}£${text}k`;
   };
 
   const anyPositive = rows.some((row) => row.saving > 0);
@@ -51,7 +55,7 @@ export function SensitivityChart({ loans, assumptions, overpayment }: Props) {
 
   return (
     <div className="card">
-      <h2>How much does the answer depend on your pay rises?</h2>
+      <h2>How much does the answer depend on your career?</h2>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} margin={{ top: 6, right: 8, left: 4, bottom: 4 }}>
@@ -62,7 +66,7 @@ export function SensitivityChart({ loans, assumptions, overpayment }: Props) {
               fontSize={12}
               tickMargin={6}
               label={{
-                value: 'Average annual pay rise',
+                value: 'Pay growth above inflation, each year',
                 position: 'insideBottom',
                 offset: -2,
                 fill: 'var(--text-muted)',
@@ -87,7 +91,7 @@ export function SensitivityChart({ loans, assumptions, overpayment }: Props) {
                 `${value >= 0 ? 'Better off' : 'Worse off'} by ${formatMoney(Math.abs(value))}`,
                 'Overpaying',
               ]}
-              labelFormatter={(label: string) => `${label} a year pay rises`}
+              labelFormatter={(label: string) => `${label} a year above inflation`}
             />
             <ReferenceLine y={0} stroke="var(--text-muted)" />
             <Bar dataKey="saving" radius={[3, 3, 0, 0]} isAnimationActive={false}>

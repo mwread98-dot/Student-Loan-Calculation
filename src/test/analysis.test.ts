@@ -1,17 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { compare, presentValueOf, salarySensitivity } from '../domain/analysis';
 import { project } from '../domain/engine';
-import { CURRENT_RPI, INTEREST_CAP } from '../domain/rates';
+import {
+  GILT_YIELD_10_YEAR,
+  GILT_YIELD_30_YEAR,
+  INTEREST_CAP,
+  INTEREST_CAP_UNTIL_YEAR,
+  LONG_HORIZON_YEARS,
+  RPI_FORECAST,
+  RPI_LONG_RUN,
+  RPI_REVERSION_YEARS,
+} from '../domain/rates';
 import type { Assumptions, Loan, OverpaymentPlan } from '../domain/types';
 
 const baseAssumptions: Assumptions = {
   grossAnnualSalary: 40_000,
-  salaryGrowth: 0.03,
-  rpi: CURRENT_RPI,
+  realSalaryGrowth: 0.02,
+  realGrowthYears: 10,
+  rpiForecast: RPI_FORECAST,
+  rpiLongRun: RPI_LONG_RUN,
+  rpiReversionYears: RPI_REVERSION_YEARS,
   interestCap: INTEREST_CAP,
+  interestCapUntilYear: INTEREST_CAP_UNTIL_YEAR,
   thresholdGrowth: 0.03,
   thresholdFreezeUntilYear: 2030,
-  opportunityRate: 0.04,
+  opportunityRateOverride: 0.04,
   startDate: new Date(Date.UTC(2026, 8, 1)),
 };
 
@@ -24,6 +37,7 @@ describe('presentValueOf', () => {
         index: 0,
         date: '2026-09',
         grossAnnualSalary: 40_000,
+        rpi: 0.031,
         balances: { plan2: 0, postgrad: 0 },
         interestAccrued: 0,
         mandatoryPaid: 0,
@@ -40,6 +54,7 @@ describe('presentValueOf', () => {
         index: 12,
         date: '2027-09',
         grossAnnualSalary: 40_000,
+        rpi: 0.031,
         balances: { plan2: 0, postgrad: 0 },
         interestAccrued: 0,
         mandatoryPaid: 1_050,
@@ -56,7 +71,7 @@ describe('presentValueOf', () => {
     ];
     const result = project(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 70_000, opportunityRate: 0 },
+      { ...baseAssumptions, grossAnnualSalary: 70_000, opportunityRateOverride: 0.0001 },
       noOverpayment,
     );
     expect(presentValueOf(result.months, 0)).toBeCloseTo(result.totalPaid, 1);
@@ -70,7 +85,7 @@ describe('compare', () => {
     ];
     const result = compare(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 32_000, salaryGrowth: 0.02 },
+      { ...baseAssumptions, grossAnnualSalary: 32_000, realSalaryGrowth: 0 },
       { lumpSum: 10_000, monthly: 0, target: 'auto' },
     );
 
@@ -88,7 +103,7 @@ describe('compare', () => {
     ];
     const result = compare(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRate: 0.01 },
+      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRateOverride: 0.01 },
       { lumpSum: 6_000, monthly: 0, target: 'auto' },
     );
 
@@ -107,12 +122,12 @@ describe('compare', () => {
 
     const cheapAlternative = compare(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRate: 0.01 },
+      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRateOverride: 0.01 },
       overpayment,
     );
     const richAlternative = compare(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRate: 0.20 },
+      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRateOverride: 0.20 },
       overpayment,
     );
 
@@ -137,7 +152,7 @@ describe('compare', () => {
       {
         ...baseAssumptions,
         grossAnnualSalary: 80_000,
-        opportunityRate: result.breakEvenRate!,
+        opportunityRateOverride: result.breakEvenRate!,
       },
       overpayment,
     );
@@ -204,7 +219,7 @@ describe('salarySensitivity', () => {
     ];
     const rows = salarySensitivity(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 45_000, opportunityRate: 0.02 },
+      { ...baseAssumptions, grossAnnualSalary: 45_000, opportunityRateOverride: 0.02 },
       { lumpSum: 8_000, monthly: 0, target: 'auto' },
       [0, 0.02, 0.04, 0.06, 0.08],
     );
@@ -215,5 +230,86 @@ describe('salarySensitivity', () => {
     expect(rows[4]!.writtenOff).toBeLessThan(rows[0]!.writtenOff);
     // Overpaying gets steadily less bad as full repayment becomes likelier.
     expect(rows[4]!.presentValueSaving).toBeGreaterThan(rows[0]!.presentValueSaving);
+  });
+});
+
+describe('chooseDiscountRate', () => {
+  it('uses the 30-year gilt for a debt with decades left to run', () => {
+    const loans: Loan[] = [
+      { plan: 'plan2', balance: 50_000, firstRepaymentDueYear: 2019 },
+    ];
+    const result = compare(
+      loans,
+      { ...baseAssumptions, grossAnnualSalary: 32_000, opportunityRateOverride: null },
+      { lumpSum: 5_000, monthly: 0, target: 'auto' },
+    );
+
+    expect(result.discountRate.basis).toBe('gilt-30');
+    expect(result.discountRate.rate).toBeCloseTo(GILT_YIELD_30_YEAR, 6);
+    expect(result.discountRate.horizonYears).toBeGreaterThan(LONG_HORIZON_YEARS);
+  });
+
+  it('uses the 10-year gilt for a debt that is nearly paid off', () => {
+    const loans: Loan[] = [
+      { plan: 'plan2', balance: 6_000, firstRepaymentDueYear: 2016 },
+    ];
+    const result = compare(
+      loans,
+      { ...baseAssumptions, grossAnnualSalary: 80_000, opportunityRateOverride: null },
+      { lumpSum: 3_000, monthly: 0, target: 'auto' },
+    );
+
+    expect(result.discountRate.basis).toBe('gilt-10');
+    expect(result.discountRate.rate).toBeCloseTo(GILT_YIELD_10_YEAR, 6);
+    expect(result.discountRate.horizonYears).toBeLessThanOrEqual(LONG_HORIZON_YEARS);
+  });
+
+  it('honours an explicit override and says so', () => {
+    const loans: Loan[] = [
+      { plan: 'plan2', balance: 20_000, firstRepaymentDueYear: 2018 },
+    ];
+    const result = compare(
+      loans,
+      { ...baseAssumptions, opportunityRateOverride: 0.08 },
+      { lumpSum: 5_000, monthly: 0, target: 'auto' },
+    );
+
+    expect(result.discountRate.basis).toBe('override');
+    expect(result.discountRate.rate).toBeCloseTo(0.08, 6);
+  });
+
+  it('discounts both scenarios at the same rate, or the comparison is meaningless', () => {
+    const loans: Loan[] = [
+      { plan: 'plan2', balance: 20_000, firstRepaymentDueYear: 2018 },
+    ];
+    const assumptions = { ...baseAssumptions, opportunityRateOverride: null };
+    const overpayment: OverpaymentPlan = { lumpSum: 5_000, monthly: 0, target: 'auto' };
+    const result = compare(loans, assumptions, overpayment);
+
+    const rate = result.discountRate.rate;
+    expect(result.minimumOnly.presentValue).toBeCloseTo(
+      presentValueOf(result.minimumOnly.months, rate),
+      1,
+    );
+    expect(result.withOverpayment.presentValue).toBeCloseTo(
+      presentValueOf(result.withOverpayment.months, rate),
+      1,
+    );
+  });
+
+  it('picks the rate from the minimum-repayment horizon, so an overpayment cannot move the goalposts', () => {
+    const loans: Loan[] = [
+      { plan: 'plan2', balance: 40_000, firstRepaymentDueYear: 2019 },
+    ];
+    const assumptions = { ...baseAssumptions, opportunityRateOverride: null };
+
+    const small = compare(loans, assumptions, { lumpSum: 0, monthly: 0, target: 'auto' });
+    const large = compare(loans, assumptions, {
+      lumpSum: 35_000,
+      monthly: 0,
+      target: 'auto',
+    });
+
+    expect(large.discountRate.rate).toBeCloseTo(small.discountRate.rate, 6);
   });
 });

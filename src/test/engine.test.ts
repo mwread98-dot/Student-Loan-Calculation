@@ -3,25 +3,42 @@ import {
   interestRate,
   mandatoryMonthlyRepayment,
   project,
+  rpiForTaxYear,
   taxYearStarting,
   thresholdForTaxYear,
   writeOffDate,
 } from '../domain/engine';
-import { CURRENT_RPI, INTEREST_CAP, PLAN_2, POSTGRADUATE } from '../domain/rates';
+import {
+  INTEREST_CAP,
+  INTEREST_CAP_UNTIL_YEAR,
+  PLAN_2,
+  POSTGRADUATE,
+  RPI_FORECAST,
+  RPI_LONG_RUN,
+  RPI_REVERSION_YEARS,
+} from '../domain/rates';
 import type { Assumptions, Loan, OverpaymentPlan } from '../domain/types';
 
 const baseAssumptions: Assumptions = {
   grossAnnualSalary: 40_000,
-  salaryGrowth: 0.03,
-  rpi: CURRENT_RPI,
+  realSalaryGrowth: 0.02,
+  realGrowthYears: 10,
+  rpiForecast: RPI_FORECAST,
+  rpiLongRun: RPI_LONG_RUN,
+  rpiReversionYears: RPI_REVERSION_YEARS,
   interestCap: INTEREST_CAP,
+  interestCapUntilYear: INTEREST_CAP_UNTIL_YEAR,
   thresholdGrowth: 0.03,
   thresholdFreezeUntilYear: 2030,
-  opportunityRate: 0.04,
+  opportunityRateOverride: 0.04,
   startDate: new Date(Date.UTC(2026, 8, 1)),
 };
 
 const noOverpayment: OverpaymentPlan = { lumpSum: 0, monthly: 0, target: 'auto' };
+
+/** project() with no overpayment, argument-ordered for readability in tests. */
+const projectMinimum = (assumptions: Assumptions, loans: Loan[]) =>
+  project(loans, assumptions, noOverpayment);
 
 describe('taxYearStarting', () => {
   it('treats 6 April as the start of a new tax year', () => {
@@ -141,7 +158,7 @@ describe('project', () => {
     ];
     const result = project(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 32_000, salaryGrowth: 0.02 },
+      { ...baseAssumptions, grossAnnualSalary: 32_000, realSalaryGrowth: 0 },
       noOverpayment,
     );
 
@@ -283,7 +300,7 @@ describe('project', () => {
     ];
     const result = project(
       loans,
-      { ...baseAssumptions, grossAnnualSalary: 15_000, salaryGrowth: 0 },
+      { ...baseAssumptions, grossAnnualSalary: 15_000, realSalaryGrowth: 0, realGrowthYears: 0 },
       noOverpayment,
     );
     expect(result.months.length).toBeLessThanOrEqual(50 * 12);
@@ -296,5 +313,136 @@ describe('project', () => {
     expect(PLAN_2.repaymentRate).toBe(0.09);
     expect(POSTGRADUATE.annualRepaymentThreshold).toBe(21_000);
     expect(POSTGRADUATE.repaymentRate).toBe(0.06);
+  });
+});
+
+describe('rpiForTaxYear', () => {
+  const forecast = [
+    { taxYear: 2026, rate: 0.031 },
+    { taxYear: 2027, rate: 0.029 },
+    { taxYear: 2028, rate: 0.029 },
+    { taxYear: 2029, rate: 0.029 },
+  ];
+
+  it('uses the published forecast where there is one', () => {
+    expect(rpiForTaxYear(2026, forecast, 0.022, 3)).toBeCloseTo(0.031, 6);
+    expect(rpiForTaxYear(2029, forecast, 0.022, 3)).toBeCloseTo(0.029, 6);
+  });
+
+  it('holds the first forecast value for anything earlier', () => {
+    expect(rpiForTaxYear(2020, forecast, 0.022, 3)).toBeCloseTo(0.031, 6);
+  });
+
+  it('glides from the last forecast year down to the long-run anchor', () => {
+    // 2.9% -> 2.2% over three years.
+    expect(rpiForTaxYear(2030, forecast, 0.022, 3)).toBeCloseTo(0.029 - 0.007 / 3, 6);
+    expect(rpiForTaxYear(2031, forecast, 0.022, 3)).toBeCloseTo(0.029 - (0.007 * 2) / 3, 6);
+  });
+
+  it('sits at the anchor once the reversion is complete, and stays there', () => {
+    expect(rpiForTaxYear(2032, forecast, 0.022, 3)).toBeCloseTo(0.022, 6);
+    expect(rpiForTaxYear(2055, forecast, 0.022, 3)).toBeCloseTo(0.022, 6);
+  });
+
+  it('steps straight to the anchor when no reversion period is allowed', () => {
+    expect(rpiForTaxYear(2030, forecast, 0.022, 0)).toBeCloseTo(0.022, 6);
+  });
+
+  it('falls back to the anchor with no forecast at all', () => {
+    expect(rpiForTaxYear(2026, [], 0.022, 3)).toBeCloseTo(0.022, 6);
+  });
+});
+
+describe('the interest cap', () => {
+  const loans: Loan[] = [
+    { plan: 'postgrad', balance: 20_000, firstRepaymentDueYear: 2021 },
+  ];
+  const borrower = { ...baseAssumptions, grossAnnualSalary: 30_000 };
+
+  it('binds only where RPI plus the margin would exceed it', () => {
+    // A postgraduate loan charges RPI + 3% flat, so the cap bites at RPI > 3%.
+    expect(interestRate('postgrad', 30_000, 0.022, 0.06, null, null)).toBeCloseTo(0.052, 6);
+    expect(interestRate('postgrad', 30_000, 0.05, 0.06, null, null)).toBeCloseTo(0.06, 6);
+  });
+
+  it('costs more once it lapses, when inflation is high enough for it to bite', () => {
+    const highInflation = { ...borrower, rpiLongRun: 0.05 };
+    const lapses = projectMinimum({ ...highInflation, interestCapUntilYear: 2027 }, loans);
+    const persists = projectMinimum({ ...highInflation, interestCapUntilYear: 2060 }, loans);
+    expect(lapses.totalInterest).toBeGreaterThan(persists.totalInterest);
+  });
+
+  it('makes almost no difference on the current forecast, because it never binds', () => {
+    // RPI is forecast at 2.9% falling to 2.2%, so RPI + 3% peaks around 5.9% —
+    // under the 6% cap. Whether the cap lapses is close to irrelevant here, and
+    // was only ever material because a frozen 4.1% RPI pushed the rate above it.
+    const lapses = projectMinimum({ ...borrower, interestCapUntilYear: 2027 }, loans);
+    const persists = projectMinimum({ ...borrower, interestCapUntilYear: 2060 }, loans);
+    expect(lapses.totalInterest).toBeCloseTo(persists.totalInterest, 0);
+  });
+
+  it('still charges more the higher inflation runs, cap or no cap', () => {
+    // Inflation reaches the balance through pay as well as interest, so it can
+    // never be fully masked — unlike under a frozen RPI.
+    const low = projectMinimum({ ...borrower, rpiLongRun: 0.02 }, loans);
+    const high = projectMinimum({ ...borrower, rpiLongRun: 0.06 }, loans);
+    expect(high.totalInterest).toBeGreaterThan(low.totalInterest);
+  });
+});
+
+describe('real salary growth', () => {
+  const loans: Loan[] = [
+    { plan: 'plan2', balance: 40_000, firstRepaymentDueYear: 2019 },
+  ];
+
+  it('starts at exactly the salary entered', () => {
+    const result = projectMinimum(baseAssumptions, loans);
+    expect(result.months[0]!.grossAnnualSalary).toBeCloseTo(40_000, 0);
+  });
+
+  it('grows faster than inflation only while the growth period lasts', () => {
+    const result = projectMinimum(
+      { ...baseAssumptions, realSalaryGrowth: 0.02, realGrowthYears: 5 },
+      loans,
+    );
+    const realTerms = (index: number) => {
+      // Deflate the nominal salary by the inflation actually applied.
+      let deflator = 1;
+      for (let i = 1; i <= index; i += 1) {
+        deflator *= Math.pow(1 + result.months[i]!.rpi, 1 / 12);
+      }
+      return result.months[index]!.grossAnnualSalary / deflator;
+    };
+
+    const atStart = realTerms(0);
+    const atFive = realTerms(60);
+    const atTwenty = realTerms(240);
+
+    // Roughly 2% a year for five years, then flat in real terms.
+    expect(atFive / atStart).toBeCloseTo(Math.pow(1.02, 5), 1);
+    expect(atTwenty / atFive).toBeCloseTo(1, 1);
+  });
+
+  it('keeps pace with inflation after the growth period ends', () => {
+    const result = projectMinimum(
+      { ...baseAssumptions, realSalaryGrowth: 0, realGrowthYears: 0 },
+      loans,
+    );
+    // Nominal pay still rises, because inflation does.
+    expect(result.months[120]!.grossAnnualSalary).toBeGreaterThan(40_000);
+  });
+
+  it('leaves pay flat in cash terms when there is neither inflation nor real growth', () => {
+    const result = projectMinimum(
+      {
+        ...baseAssumptions,
+        realSalaryGrowth: 0,
+        realGrowthYears: 0,
+        rpiForecast: [],
+        rpiLongRun: 0,
+      },
+      loans,
+    );
+    expect(result.months[120]!.grossAnnualSalary).toBeCloseTo(40_000, 0);
   });
 });

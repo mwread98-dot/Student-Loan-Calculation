@@ -57,7 +57,7 @@ export function ResultsPanel({ comparison }: { comparison: Comparison }) {
           <div className="sub">
             {breakEvenRate === null
               ? 'overpaying never wins here'
-              : 'beat this elsewhere and keep the cash'}
+              : `vs ${formatPercent(comparison.discountRate.rate)} risk-free`}
           </div>
         </div>
       </div>
@@ -113,6 +113,17 @@ export function ResultsPanel({ comparison }: { comparison: Comparison }) {
             </tr>
           </tbody>
         </table>
+
+        <p className="rates-note">
+          Future payments are discounted at{' '}
+          <strong>{formatPercent(comparison.discountRate.rate)}</strong> —{' '}
+          {comparison.discountRate.label}
+          {comparison.discountRate.basis === 'override'
+            ? '.'
+            : `, chosen because the debt has about ${Math.round(comparison.discountRate.horizonYears)} years left to run.`}{' '}
+          That is the return you could get for certain instead of overpaying, so
+          it is the bar overpaying has to clear.
+        </p>
 
         {minimumOnly.perLoan.length > 1 && (
           <>

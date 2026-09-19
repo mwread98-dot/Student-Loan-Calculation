@@ -16,23 +16,38 @@ export interface Loan {
 export interface Assumptions {
   /** Gross annual salary today, before tax. */
   grossAnnualSalary: number;
-  /** Nominal annual salary growth, e.g. 0.04 for 4%. */
-  salaryGrowth: number;
-  /** RPI used for loan interest. */
-  rpi: number;
+  /**
+   * Pay growth *above inflation*. Nominal growth is this compounded with the
+   * inflation of the year in question, so a 2% figure means 2% better off in
+   * real terms each year, whatever inflation does.
+   */
+  realSalaryGrowth: number;
+  /**
+   * How many years the above-inflation growth lasts. After it, pay is assumed
+   * to track inflation and no more — which is what most careers actually do
+   * once they plateau, and assuming otherwise flatters the case for overpaying.
+   */
+  realGrowthYears: number;
+  /** RPI by tax year, for the years it has been forecast. */
+  rpiForecast: { taxYear: number; rate: number }[];
+  /** Where RPI settles once the forecast runs out. */
+  rpiLongRun: number;
+  /** Years taken to travel from the last forecast value to the anchor. */
+  rpiReversionYears: number;
   /** Cap on the loan interest rate, or null for uncapped. */
   interestCap: number | null;
+  /** The September from which the cap is assumed no longer to apply. */
+  interestCapUntilYear: number;
   /** Annual uprating of repayment thresholds once any freeze ends. */
   thresholdGrowth: number;
   /** Thresholds are held flat for tax years before this one. */
   thresholdFreezeUntilYear: number;
   /**
-   * What the money would earn instead, net of tax — a savings rate, an expected
-   * investment return, or a mortgage rate. This is the discount rate used to
-   * compare the two scenarios, so it is the single most important input after
-   * salary.
+   * What the money would earn instead, used as the discount rate. Left null,
+   * it is taken from the gilt yield matching how long the debt has left to
+   * run, which is the closest thing to a risk-free return over that term.
    */
-  opportunityRate: number;
+  opportunityRateOverride: number | null;
   /** Month the projection starts from. Defaults to today. */
   startDate: Date;
 }
@@ -57,6 +72,8 @@ export interface MonthSnapshot {
   index: number;
   date: string;
   grossAnnualSalary: number;
+  /** RPI in force this month. */
+  rpi: number;
   /** Closing balance per loan after interest and payments. */
   balances: Record<LoanPlanId, number>;
   interestAccrued: number;
@@ -103,7 +120,18 @@ export interface Verdict {
   reasoning: string[];
 }
 
+/** Where the discount rate came from, so the figure can be justified. */
+export interface DiscountRate {
+  rate: number;
+  basis: 'gilt-30' | 'gilt-10' | 'override';
+  /** Years the debt still has to run, which decided the choice of gilt. */
+  horizonYears: number;
+  label: string;
+}
+
 export interface Comparison {
+  /** The rate used to discount both scenarios, and why. */
+  discountRate: DiscountRate;
   minimumOnly: ScenarioResult;
   withOverpayment: ScenarioResult;
   /** Extra cash you hand over by overpaying. Negative means you pay less overall. */

@@ -1,5 +1,9 @@
 import { NumberField } from './NumberField';
-import { PLAN_2, POSTGRADUATE, RATES_TAX_YEAR } from '../domain/rates';
+import {
+  INTEREST_CAP_UNTIL_YEAR,
+  PLAN_2,
+  POSTGRADUATE,
+} from '../domain/rates';
 import type { Assumptions, OverpaymentPlan } from '../domain/types';
 
 export interface LoanEntry {
@@ -136,16 +140,27 @@ export function InputPanel({
           }
         />
         <NumberField
-          id="salary-growth"
-          label="Expected pay rises"
-          hint="Average yearly increase over your career, including inflation. This matters more than any other input."
+          id="real-growth"
+          label="Pay rises above inflation"
+          hint="How much better off you get each year in real terms, on top of inflation. Promotions and moves, not cost-of-living rises."
           suffix="%"
-          step={0.5}
+          step={0.25}
           min={-5}
           max={20}
-          value={round(assumptions.salaryGrowth * 100)}
+          value={round(assumptions.realSalaryGrowth * 100)}
           onChange={(pct) =>
-            onAssumptionsChange({ ...assumptions, salaryGrowth: pct / 100 })
+            onAssumptionsChange({ ...assumptions, realSalaryGrowth: pct / 100 })
+          }
+        />
+        <NumberField
+          id="real-growth-years"
+          label="…for how many years"
+          hint="Careers rarely outpace inflation forever. After this, pay is assumed to track inflation and no more."
+          min={0}
+          max={45}
+          value={assumptions.realGrowthYears}
+          onChange={(realGrowthYears) =>
+            onAssumptionsChange({ ...assumptions, realGrowthYears })
           }
         />
       </div>
@@ -195,35 +210,42 @@ export function InputPanel({
           </div>
         )}
 
-        <NumberField
-          id="opportunity"
-          label="What your money could earn instead"
-          hint="Savings rate after tax, expected investment return, or your mortgage rate. Beat the loan's interest and you are better off keeping the cash."
-          suffix="%"
-          step={0.25}
-          min={0}
-          max={30}
-          value={round(assumptions.opportunityRate * 100)}
-          onChange={(pct) =>
-            onAssumptionsChange({ ...assumptions, opportunityRate: pct / 100 })
-          }
-        />
       </div>
 
       <div className="card">
         <details className="advanced">
           <summary>Advanced assumptions</summary>
 
+          <p className="rates-note">
+            Near-term RPI follows the OBR's March 2026 forecast:{' '}
+            {assumptions.rpiForecast
+              .map((point) => `${point.taxYear} ${(point.rate * 100).toFixed(1)}%`)
+              .join(', ')}
+            . After that it moves to the long-run figure below.
+          </p>
           <NumberField
-            id="rpi"
-            label="RPI used for interest"
-            hint={`Fixed each 1 September. ${RATES_TAX_YEAR} uses the previous March's figure.`}
+            id="rpi-long-run"
+            label="Long-run RPI"
+            hint="From February 2030 RPI is calculated as CPIH, about a percentage point below the old RPI. This governs most of a 30-year term."
             suffix="%"
             step={0.1}
             min={0}
             max={25}
-            value={round(assumptions.rpi * 100)}
-            onChange={(pct) => onAssumptionsChange({ ...assumptions, rpi: pct / 100 })}
+            value={round(assumptions.rpiLongRun * 100)}
+            onChange={(pct) =>
+              onAssumptionsChange({ ...assumptions, rpiLongRun: pct / 100 })
+            }
+          />
+          <NumberField
+            id="rpi-reversion"
+            label="Years to reach it"
+            hint="How long RPI takes to travel from the last forecast year to the long-run figure."
+            min={0}
+            max={30}
+            value={assumptions.rpiReversionYears}
+            onChange={(rpiReversionYears) =>
+              onAssumptionsChange({ ...assumptions, rpiReversionYears })
+            }
           />
           <NumberField
             id="cap"
@@ -240,6 +262,37 @@ export function InputPanel({
               onAssumptionsChange({
                 ...assumptions,
                 interestCap: pct <= 0 ? null : pct / 100,
+              })
+            }
+          />
+          <NumberField
+            id="cap-until"
+            label="Cap assumed to last until September"
+            hint={`Only one interest year has been capped so far, to August ${INTEREST_CAP_UNTIL_YEAR}. Raise this if you think caps keep being renewed.`}
+            min={2026}
+            max={2070}
+            value={assumptions.interestCapUntilYear}
+            onChange={(interestCapUntilYear) =>
+              onAssumptionsChange({ ...assumptions, interestCapUntilYear })
+            }
+          />
+          <NumberField
+            id="discount-override"
+            label="Override the discount rate"
+            hint="Leave at 0 to use the gilt yield matched to your remaining term. Set a figure to compare against something else instead."
+            suffix="%"
+            step={0.25}
+            min={0}
+            max={30}
+            value={
+              assumptions.opportunityRateOverride === null
+                ? 0
+                : round(assumptions.opportunityRateOverride * 100)
+            }
+            onChange={(pct) =>
+              onAssumptionsChange({
+                ...assumptions,
+                opportunityRateOverride: pct <= 0 ? null : pct / 100,
               })
             }
           />
