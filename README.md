@@ -83,6 +83,22 @@ npm run smoke
 
 ## Deploying to AWS
 
+### First, put this on `main`
+
+The repository started empty, so its first branch became the default. The
+deploy workflow watches `main`, so rename it:
+
+```bash
+git branch -m claude/student-loan-payoff-calc-vtw6y9 main
+git push -u origin main
+```
+
+Then set `main` as the default under **Settings → General → Default branch**
+and delete the old branch. Until you do, deploys can still be triggered by hand
+from the **Actions** tab.
+
+### The hosting
+
 The site is static, so it needs no servers: a private **S3** bucket served
 through **CloudFront** over HTTPS. The bucket is never public — CloudFront
 reaches it through an Origin Access Control and the bucket policy trusts
