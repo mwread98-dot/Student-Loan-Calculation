@@ -106,6 +106,13 @@ distribution.
    `SiteStackName` must match step 3 exactly — this stack reads that one's
    outputs to scope the permissions.
 
+   `GitHubRepository` is **owner/repo and nothing else**. Not the address bar
+   contents, so no `https://`, no `github.com/`, no `.git`, no quotes and no
+   stray space on either end. Type it by hand if a paste misbehaves — it is
+   shorter than checking. That exact string is compared against the identity
+   GitHub puts in its token, so a `.git` on the end passes validation here and
+   then silently fails to authenticate in step 6.
+
 4. Click **Next**, then **Next**.
 5. Near the bottom of the review page, tick:
 
@@ -222,8 +229,9 @@ bucket → Empty**, type the confirmation, then **Delete**.
 | Symptom | Cause |
 | --- | --- |
 | Stack fails instantly on step 4 | The IAM acknowledgement checkbox was not ticked. |
+| `Parameter GitHubRepository failed to satisfy constraint` | The value is not bare `owner/repo`. Usually the pasted URL (`https://github.com/...`), or a leading/trailing space, or backticks picked up with a copy. |
 | `Export ... cannot be found` | `SiteStackName` does not match step 3's stack name, or that stack is in a different region. |
 | Deploy run fails at *Get temporary AWS credentials* | `AWS_DEPLOY_ROLE_ARN` is missing, mistyped, or saved as a *Secret* rather than a *Variable*. |
-| Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The branch does not match `GitHubRefPattern` — you are deploying from something other than `main`. |
+| Deploy run fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity` | Either the branch does not match `GitHubRefPattern` — you are deploying from something other than `main` — or `GitHubRepository` has a `.git` suffix or wrong capitalisation, which passes the stack's validation but not GitHub's token. Update the `student-loan-calculator-ci` stack with the corrected value. |
 | Site shows an old version | CloudFront cache. The workflow invalidates it, but propagation takes a minute; hard-refresh. |
 | **Actions** tab shows no *Run workflow* button | The workflow file is not on the default branch yet — finish step 1. |

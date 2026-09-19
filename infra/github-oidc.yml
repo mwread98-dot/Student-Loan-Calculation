@@ -12,9 +12,18 @@ Parameters:
 
   GitHubRepository:
     Type: String
-    Description: The repository allowed to assume this role, as owner/repo.
+    Description: >-
+      The repository allowed to assume this role, written as owner/repo — for
+      example mwread98-dot/Student-Loan-Calculation. Paste only that: not the
+      browser URL, and no https://, no github.com/, no .git on the end, no
+      quotes and no surrounding spaces. This string is matched against the
+      identity GitHub puts in its token, so anything extra stops the deploy
+      authenticating later even where it passes validation here.
     AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
-    ConstraintDescription: Must look like owner/repo.
+    ConstraintDescription: >-
+      Enter owner/repo only, e.g. mwread98-dot/Student-Loan-Calculation — not
+      the full URL, and with no https://, github.com/, .git suffix, quotes or
+      spaces.
 
   GitHubRefPattern:
     Type: String
