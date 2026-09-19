@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Lets GitHub Actions deploy this site without storing AWS keys. GitHub presents
+  a short-lived OIDC token, AWS trades it for temporary credentials, and the
+  resulting role can touch nothing but this site's bucket and distribution.
+
+Parameters:
+  SiteStackName:
+    Type: String
+    Default: student-loan-calculator-site
+    Description: Name of the stack created from site.yml, whose outputs are imported here.
+
+  GitHubRepository:
+    Type: String
+    Description: The repository allowed to assume this role, as owner/repo.
+    AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    ConstraintDescription: Must look like owner/repo.
+
+  GitHubRefPattern:
+    Type: String
+    Default: 'ref:refs/heads/main'
+    Description: >-
+      Which workflow runs may assume the role. Defaults to the main branch
+      only. Use 'ref:refs/heads/*' for any branch, or '*' for any run including
+      pull requests from forks — which is rarely what you want.
+
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      Set to false if this account already has a GitHub Actions OIDC provider.
+      An account may only have one per issuer, and a second one fails the stack.
+
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: ARN of the existing provider, when CreateOidcProvider is false.
+
+Conditions:
+  ShouldCreateProvider: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${SiteStackName}-github-deploy'
+      Description: Assumed by GitHub Actions to publish the built site.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+              StringLike:
+                # Pins the role to this repository, so no other repository's
+                # workflow can assume it even with a valid GitHub token.
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:${GitHubRefPattern}'
+      Policies:
+        - PolicyName: PublishSite
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListSiteBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:s3:::${Bucket}'
+                  - Bucket: !ImportValue
+                      'Fn::Sub': '${SiteStackName}-BucketName'
+
+              - Sid: WriteSiteObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:s3:::${Bucket}/*'
+                  - Bucket: !ImportValue
+                      'Fn::Sub': '${SiteStackName}-BucketName'
+
+              - Sid: InvalidateCache
+                Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+                  - DistributionId: !ImportValue
+                      'Fn::Sub': '${SiteStackName}-DistributionId'
+
+              - Sid: ReadStackOutputs
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${SiteStackName}/*'
+
+Outputs:
+  DeployRoleArn:
+    Description: Set this as the AWS_DEPLOY_ROLE_ARN repository variable in GitHub.
+    Value: !GetAtt DeployRole.Arn
+
+  OidcProviderArn:
+    Condition: ShouldCreateProvider
+    Description: The GitHub Actions OIDC provider created for this account.
+    Value: !Ref GitHubOidcProvider

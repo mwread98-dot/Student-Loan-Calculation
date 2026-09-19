@@ -1,0 +1,97 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required for the OIDC handshake that gets temporary AWS credentials. No
+# long-lived access keys are stored in this repository.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # A broken build must never reach the bucket.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Get temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+      - name: Read stack outputs
+        id: stack
+        env:
+          STACK_NAME: ${{ vars.SITE_STACK_NAME || 'student-loan-calculator-site' }}
+        run: |
+          set -euo pipefail
+          read_output() {
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+              --output text
+          }
+          {
+            echo "bucket=$(read_output BucketName)"
+            echo "distribution=$(read_output DistributionId)"
+            echo "url=$(read_output SiteUrl)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Hashed assets are immutable and cached for a year; index.html is
+      # revalidated on every visit so a deploy takes effect immediately.
+      # Assets upload first, so the HTML never references a file that is not
+      # there yet.
+      - name: Upload assets
+        run: |
+          aws s3 sync dist/ "s3://${{ steps.stack.outputs.bucket }}/" \
+            --delete \
+            --exclude 'index.html' \
+            --exclude '*.map' \
+            --cache-control 'public,max-age=31536000,immutable'
+
+      - name: Upload index.html
+        run: |
+          aws s3 cp dist/index.html "s3://${{ steps.stack.outputs.bucket }}/index.html" \
+            --cache-control 'public,max-age=0,must-revalidate' \
+            --content-type 'text/html; charset=utf-8'
+
+      - name: Invalidate the CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.stack.outputs.distribution }}" \
+            --paths '/*'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed"
+            echo ""
+            echo "The calculator is live at ${{ steps.stack.outputs.url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
